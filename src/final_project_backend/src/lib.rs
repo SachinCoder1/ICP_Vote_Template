@@ -103,18 +103,18 @@ fn edit_proposal(key: u64, proposal: CreateProposal) -> Result<(), VoteError> {
         }
 
         let value: Proposal = Proposal {
-            description: old_proposal.description,
+            description: proposal.description,
             approve: old_proposal.approve,
             reject: old_proposal.reject,
             pass: old_proposal.pass,
-            is_active: old_proposal.is_active,
+            is_active: proposal.is_active,
             voted: old_proposal.voted,
             owner: old_proposal.owner,
         };
 
         let res = p.borrow_mut().insert(key, value);
         match res {
-            Some(val) => Ok(()),
+            Some(_) => Ok(()),
             None => Err(VoteError::UpdateError),
         }
     })
@@ -139,11 +139,44 @@ fn end_proposal(key: u64) -> Result<(), VoteError> {
 
         let res = p.borrow_mut().insert(key, old_proposal);
         match res {
-            Some(val) => Ok(()),
+            Some(_) => Ok(()),
             None => Err(VoteError::UpdateError),
         }
     })
 }
 
 #[ic_cdk::update]
-fn vote(key: u64, choice: Choice) -> Result<(), VoteError> {}
+fn vote(key: u64, choice: Choice) -> Result<(), VoteError> {
+    PROPOSAL_MAP.with(|p| {
+        let proposal_opt = p.borrow().get(&key);
+        let mut proposal: Proposal;
+
+        match proposal_opt {
+            Some(value) => proposal = value,
+            None => return Err(VoteError::NoSuchProposal),
+        }
+
+        let caller = ic_cdk::caller();
+
+        if proposal.voted.contains(&caller) {
+            return Err(VoteError::AlreadyVoted);
+        } else if proposal.is_active != true {
+            return Err(VoteError::ProposalNotActive);
+        }
+
+        match choice {
+            Choice::Approve => proposal.approve += 1,
+            Choice::Pass => proposal.pass += 1,
+            Choice::Reject => proposal.reject += 1,
+        }
+
+        proposal.voted.push(caller);
+
+        let res = p.borrow_mut().insert(key, proposal);
+
+        match res {
+            Some(_) => Ok(()),
+            None => Err(VoteError::UpdateError),
+        }
+    })
+}
